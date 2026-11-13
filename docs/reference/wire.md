@@ -235,3 +235,27 @@ A node ID: 32 bytes, Keccak-256 of the public key.
 ## Results
 
 <!-- CI generates the tick table for each function here. -->
+
+### `discv5_packet_decode`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_message_decrypt`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_packet_encode`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |

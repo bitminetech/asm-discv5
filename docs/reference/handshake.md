@@ -212,3 +212,27 @@ The keys HKDF-Expand gives.
 ## Results
 
 <!-- CI generates the tick table for each function here. -->
+
+### `discv5_derive_keys`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_id_sign`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_id_verify`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |

@@ -812,3 +812,131 @@ One key/value entry of the local record, in the state.
 ## Results
 
 <!-- CI generates the tick table for each function here. -->
+
+### `discv5_enr_decode`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_enr_text_decode`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_local_record`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_copy`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_zero`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_equal`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_load_be`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_store_be`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_rlp_header`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_rlp_bytes`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_rlp_uint`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_hash`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_entry_set`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_record_build`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_set_endpoint`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
+
+### `discv5_owned_key`
+
+| ISA | Linux | Windows | macOS | `equal` |
+|---|---|---|---|---|
+| x86-64 | ✅ | ✅ | ✅ |  |
+| ARM64 | ✅ | ✅ | ✅ |  |
+| RISC-V | ✅ |  |  |  |
