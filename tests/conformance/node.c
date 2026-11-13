@@ -3,7 +3,7 @@
  * around the assembly core and shell. Test code: the library itself is
  * assembly.
  *
- * Usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-b ENR_TEXT]...
+ * Usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-i LIMITS] [-b ENR_TEXT]...
  * Prints the node's ENR text on the first line, then serves until killed.
  * IP 0.0.0.0 binds every interface and leaves the address out of the record.
  * -v prints every action. -l looks up a random node ID every SECONDS, or
@@ -12,6 +12,8 @@
  * closes the socket and prints "closed".
  * -c prints "peer N ID enr:..." for each new node ID that lookups find, and
  * stops after COUNT of them.
+ * -i sets the IP limits of the table: BUCKET,TABLE,SUBNET4,SUBNET6,LAN, the
+ * config fields of the same names (for example 2,10,24,24,0 as geth).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -35,12 +37,13 @@ DISCV5_ABI uint64_t discv5_shell_receive(void *context, const void *until, void 
 DISCV5_ABI uint64_t discv5_shell_close(void *context);
 
 /* Values from include/discv5.inc. */
-#define STATE_SIZE 245352
+#define STATE_SIZE 245392
 #define SCRATCH_SIZE 65536
 #define ACTIONS_BASE 32768
 #define ACTIONS_PER_EVENT 16384
 #define EVENT_MAX 1336
 #define MAX_EVENTS 256
+#define CONFIG_SIZE 152
 #define MAX_BOOT 64
 enum { EV_DATAGRAM = 1, EV_ADD_NODE = 2, EV_LOOKUP = 3, EV_OPENED = 6, EV_SENT = 7, EV_IDLE = 8 };
 enum { ACT_SEND = 1, ACT_NODE_FOUND = 2, ACT_LOOKUP_DONE = 3, ACT_ENDPOINT = 4, ACT_RECORD = 5, ACT_WAKEUP = 6 };
@@ -149,7 +152,7 @@ static size_t event_count(void) {
 
 int main(int argc, char **argv) {
     int verbose = 0;
-    uint64_t every = 0, stop_after = 0, collect = 0;
+    uint64_t every = 0, stop_after = 0, collect = 0, limits[5] = {0};
     uint8_t target[32];
     int fixed_target = 0;
     const char *args[3] = {0};
@@ -165,7 +168,15 @@ int main(int argc, char **argv) {
             stop_after = 1000 * (uint64_t)strtoul(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "-t") && i + 1 < argc)
             fixed_target = parse_hex32(argv[++i], target);
-        else if (!strcmp(argv[i], "-c") && i + 1 < argc)
+        else if (!strcmp(argv[i], "-i") && i + 1 < argc) {
+            unsigned long long v[5];
+            if (sscanf(argv[++i], "%llu,%llu,%llu,%llu,%llu", &v[0], &v[1], &v[2], &v[3], &v[4]) != 5) {
+                fprintf(stderr, "node: -i takes BUCKET,TABLE,SUBNET4,SUBNET6,LAN\n");
+                return 2;
+            }
+            for (int k = 0; k < 5; k++)
+                limits[k] = v[k];
+        } else if (!strcmp(argv[i], "-c") && i + 1 < argc)
             collect = strtoull(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "-b") && i + 1 < argc && nboot < MAX_BOOT)
             boot[nboot++] = argv[++i];
@@ -174,7 +185,7 @@ int main(int argc, char **argv) {
     }
     uint8_t ip[4];
     if (nargs < 2 || !parse_ip4(args[0], ip)) {
-        fprintf(stderr, "usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-b ENR_TEXT]...\n");
+        fprintf(stderr, "usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-i LIMITS] [-b ENR_TEXT]...\n");
         return 2;
     }
     long port = strtol(args[1], NULL, 10);
@@ -184,7 +195,7 @@ int main(int argc, char **argv) {
 
     uint8_t *state = xalloc(STATE_SIZE);
     uint8_t *scratch = xalloc(SCRATCH_SIZE);
-    uint8_t tick[40], config[112], endpoint[32], context[64];
+    uint8_t tick[40], config[CONFIG_SIZE], endpoint[32], context[64];
     uint8_t *event = xalloc(EVENT_MAX);
     events_cap = 24 + MAX_EVENTS * 64 + 2 * EVENT_MAX;
     events = xalloc(events_cap);
@@ -216,6 +227,8 @@ int main(int argc, char **argv) {
             wr64(config + 88, 4);
             memcpy(config + 96, ip, 4);
         }
+        for (int k = 0; k < 5; k++)
+            wr64(config + 112 + 8 * k, limits[k]);
         uint64_t st = discv5_init(config, state);
         if (st == 0)
             break;

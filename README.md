@@ -91,5 +91,6 @@ Standard: [asm-standard@2a19d3f](https://github.com/bitminetech/asm-standard/blo
 | Wakeup | The application waits with `discv5_shell_receive` until the WAKEUP time or a datagram, and passes the event to the next step |
 | Action room | `DISCV5_ACTIONS_BASE` + events × `DISCV5_ACTIONS_PER_EVENT` bytes after the 24-byte header |
 | Bootnodes, lookups, record | ADD_NODE, LOOKUP, SET_ENDPOINT and SET_ENTRY events; NODE_FOUND, LOOKUP_DONE, ENDPOINT and RECORD actions |
+| IP limits of the node table | The `discv5_init` config sets them: [Config](docs/reference/node.md#type-config); all zero turns them off |
 | Shutdown | `discv5_shell_close` |
 | Concurrency | One thread at a time for a state and its shell context |

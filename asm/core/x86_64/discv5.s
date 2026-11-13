@@ -1562,6 +1562,24 @@ FUNCTION discv5_init
     call    discv5_hash
     mov     DISCV5_CFG_SEQ(%rbx), %rax
     mov     %rax, DISCV5_ST_SEQ(%rbp)
+    mov     DISCV5_CFG_BUCKET_IP_LIMIT(%rbx), %rax
+    mov     %rax, DISCV5_ST_BUCKET_IP_LIMIT(%rbp)
+    mov     DISCV5_CFG_TABLE_IP_LIMIT(%rbx), %rax
+    mov     %rax, DISCV5_ST_TABLE_IP_LIMIT(%rbp)
+    mov     DISCV5_CFG_SUBNET4(%rbx), %rax
+    mov     $32, %ecx
+    cmp     %rcx, %rax
+    cmova   %rcx, %rax
+    mov     %rax, DISCV5_ST_SUBNET4(%rbp)
+    mov     DISCV5_CFG_SUBNET6(%rbx), %rax
+    mov     $128, %ecx
+    cmp     %rcx, %rax
+    cmova   %rcx, %rax
+    mov     %rax, DISCV5_ST_SUBNET6(%rbp)
+    xor     %eax, %eax
+    cmpq    $0, DISCV5_CFG_LIMIT_LAN(%rbx)
+    setne   %al
+    mov     %rax, DISCV5_ST_LIMIT_LAN(%rbp)
     mov     %rbp, %rdi
     lea     DISCV5_CFG_ENTROPY(%rbx), %rsi
     call    discv5_reseed
@@ -2050,10 +2068,183 @@ LOCAL_FUNCTION discv5_node_count
 END_FUNCTION discv5_node_count
 
 /*
+ * discv5_ip_lan(endpoint) -> 1 when the address is loopback, private or link
+ * local as Go's net/netip reports them (geth's AddrIsLAN), else 0. An
+ * IPv4-mapped IPv6 address counts as its IPv4 address. A leaf: rsi the
+ * address, rax, rcx and rdx values.
+ */
+LOCAL_FUNCTION discv5_ip_lan
+    UNWIND_END_PROLOGUE
+    lea     DISCV5_EP_ADDRESS(%rdi), %rsi
+    cmpq    $4, DISCV5_EP_FAMILY(%rdi)
+    je      4f
+    mov     (%rsi), %rcx                    /* bytes 0-7 */
+    mov     8(%rsi), %rdx                   /* bytes 8-15 */
+    test    %rcx, %rcx
+    jnz     6f
+    mov     $1, %eax
+    shl     $56, %rax
+    cmp     %rax, %rdx
+    je      1f                              /* ::1 */
+    mov     %edx, %eax
+    cmp     $0xFFFF0000, %eax
+    jne     0f
+    add     $12, %rsi                       /* ::ffff:a.b.c.d */
+    jmp     4f
+6:  movzbl  (%rsi), %eax
+    mov     %eax, %ecx
+    and     $0xFE, %ecx
+    cmp     $0xFC, %ecx
+    je      1f                              /* fc00::/7 */
+    cmp     $0xFE, %eax
+    jne     0f
+    movzbl  1(%rsi), %ecx
+    and     $0xC0, %ecx
+    cmp     $0x80, %ecx
+    je      1f                              /* fe80::/10 */
+    jmp     0f
+4:  movzbl  (%rsi), %eax
+    movzbl  1(%rsi), %ecx
+    cmp     $127, %eax
+    je      1f                              /* 127/8 */
+    cmp     $10, %eax
+    je      1f                              /* 10/8 */
+    cmp     $172, %eax
+    jne     41f
+    and     $0xF0, %ecx
+    cmp     $16, %ecx
+    je      1f                              /* 172.16/12 */
+    jmp     0f
+41: cmp     $192, %eax
+    jne     42f
+    cmp     $168, %ecx
+    je      1f                              /* 192.168/16 */
+    jmp     0f
+42: cmp     $169, %eax
+    jne     0f
+    cmp     $254, %ecx
+    je      1f                              /* 169.254/16 */
+0:  xor     %eax, %eax
+    ret
+1:  mov     $1, %eax
+    ret
+END_FUNCTION discv5_ip_lan
+
+/* discv5_prefix_equal(a, b, bits) -> 1 when the first bits bits at a and b are equal, else 0. A leaf. */
+LOCAL_FUNCTION discv5_prefix_equal
+    UNWIND_END_PROLOGUE
+1:  cmp     $8, %rdx
+    jb      2f
+    movzbl  (%rdi), %eax
+    cmpb    (%rsi), %al
+    jne     0f
+    inc     %rdi
+    inc     %rsi
+    sub     $8, %rdx
+    jmp     1b
+2:  test    %rdx, %rdx
+    jz      3f
+    movzbl  (%rdi), %eax
+    movzbl  (%rsi), %r8d
+    xor     %r8d, %eax
+    mov     $8, %ecx
+    sub     %edx, %ecx
+    shr     %cl, %eax
+    test    %eax, %eax
+    jnz     0f
+3:  mov     $1, %eax
+    ret
+0:  xor     %eax, %eax
+    ret
+END_FUNCTION discv5_prefix_equal
+
+/*
+ * discv5_ip_fits(scratch, endpoint, bucket, exclude) -> 1 when a node at the
+ * endpoint keeps its subnet within the IP limits of the table and of the
+ * bucket, else 0. Every used slot but exclude counts. When the local
+ * network is left out of the limits, a local address always fits and never
+ * counts. rbx endpoint, rbp bucket, r12 exclude, r13 slot, r14 slots left;
+ * at rsp the table count, then the bucket count, the prefix bits and the
+ * state.
+ */
+LOCAL_FUNCTION discv5_ip_fits
+    ENTER   40
+    mov     %rdi, %r15
+    mov     %rsi, %rbx
+    mov     %rdx, %rbp
+    mov     %rcx, %r12
+    STATE   %rax
+    mov     %rax, 24(%rsp)
+    mov     DISCV5_ST_BUCKET_IP_LIMIT(%rax), %rcx
+    or      DISCV5_ST_TABLE_IP_LIMIT(%rax), %rcx
+    jz      8f                              /* no limits */
+    cmpq    $0, DISCV5_ST_LIMIT_LAN(%rax)
+    jne     1f
+    mov     %rbx, %rdi
+    call    discv5_ip_lan
+    test    %rax, %rax
+    jnz     8f                              /* a local address */
+1:  mov     24(%rsp), %rax
+    mov     DISCV5_ST_SUBNET4(%rax), %rcx
+    cmpq    $4, DISCV5_EP_FAMILY(%rbx)
+    je      2f
+    mov     DISCV5_ST_SUBNET6(%rax), %rcx
+2:  mov     %rcx, 16(%rsp)
+    lea     DISCV5_ST_NODES(%rax), %r13
+    mov     $DISCV5_NODE_SLOTS, %r14d
+    movq    $0, (%rsp)
+    movq    $0, 8(%rsp)
+3:  cmpb    $0, DISCV5_N_STATE(%r13)
+    je      7f
+    cmp     %r12, %r13
+    je      7f
+    mov     DISCV5_N_EP+DISCV5_EP_FAMILY(%r13), %rax
+    cmp     DISCV5_EP_FAMILY(%rbx), %rax
+    jne     7f
+    lea     DISCV5_N_EP+DISCV5_EP_ADDRESS(%r13), %rdi
+    lea     DISCV5_EP_ADDRESS(%rbx), %rsi
+    mov     16(%rsp), %rdx
+    call    discv5_prefix_equal
+    test    %rax, %rax
+    jz      7f
+    mov     24(%rsp), %rax
+    cmpq    $0, DISCV5_ST_LIMIT_LAN(%rax)
+    jne     5f
+    lea     DISCV5_N_EP(%r13), %rdi
+    call    discv5_ip_lan
+    test    %rax, %rax
+    jnz     7f                              /* a local address never counts */
+5:  incq    (%rsp)
+    movzbl  DISCV5_N_BUCKET(%r13), %eax
+    cmp     %rbp, %rax
+    jne     7f
+    incq    8(%rsp)
+7:  add     $DISCV5_N_SIZE, %r13
+    dec     %r14
+    jnz     3b
+    xor     %eax, %eax
+    mov     24(%rsp), %rcx
+    mov     DISCV5_ST_TABLE_IP_LIMIT(%rcx), %rdx
+    test    %rdx, %rdx
+    jz      71f
+    cmp     %rdx, (%rsp)
+    jae     9f
+71: mov     DISCV5_ST_BUCKET_IP_LIMIT(%rcx), %rdx
+    test    %rdx, %rdx
+    jz      8f
+    cmp     %rdx, 8(%rsp)
+    jae     9f
+8:  mov     $1, %eax
+9:  LEAVE   40
+END_FUNCTION discv5_ip_fits
+
+/*
  * discv5_node_add(scratch, enr, record) -> the slot, or 0: adds a checked
  * record with a UDP endpoint to the table, or updates its slot when the
  * record is newer. A full bucket takes it as a replacement; a full
- * replacement list drops its oldest. rbx enr, rbp record, r12 slot,
+ * replacement list drops its oldest. A node that would pass an IP limit is
+ * left out; a newer record whose address would pass one is not taken, and
+ * the slot keeps the old record. rbx enr, rbp record, r12 slot,
  * r13 bucket, r14 kind. The endpoint at rsp.
  */
 LOCAL_FUNCTION discv5_node_add
@@ -2084,11 +2275,27 @@ LOCAL_FUNCTION discv5_node_add
     mov     DISCV5_ENR_SEQ(%rbx), %rcx      /* known: keep the newer record */
     cmp     DISCV5_N_SEQ(%r12), %rcx
     jbe     9f
+    mov     %r15, %rdi
+    mov     %rsp, %rsi
+    movzbl  DISCV5_N_BUCKET(%r12), %edx
+    mov     %r12, %rcx
+    call    discv5_ip_fits
+    mov     %rax, %rcx
+    mov     %r12, %rax
+    test    %rcx, %rcx
+    jz      9f                              /* the new address passes a limit */
     jmp     6f
 1:  STATE   %rdi
     mov     %rbx, %rsi
     call    discv5_bucket
     mov     %rax, %r13
+    mov     %r15, %rdi
+    mov     %rsp, %rsi
+    mov     %r13, %rdx
+    xor     %ecx, %ecx
+    call    discv5_ip_fits
+    test    %rax, %rax
+    jz      9f                              /* the subnet is full */
     mov     %r15, %rdi
     mov     %r13, %rsi
     mov     $DISCV5_NODE_MEMBER, %edx

@@ -1634,6 +1634,23 @@ FUNCTION discv5_init
     call    discv5_hash
     ld      t0, DISCV5_CFG_SEQ(s1)
     sd      t0, DISCV5_ST_SEQ(s2)
+    ld      t0, DISCV5_CFG_BUCKET_IP_LIMIT(s1)
+    SDO     t0, s2, DISCV5_ST_BUCKET_IP_LIMIT
+    ld      t0, DISCV5_CFG_TABLE_IP_LIMIT(s1)
+    SDO     t0, s2, DISCV5_ST_TABLE_IP_LIMIT
+    ld      t0, DISCV5_CFG_SUBNET4(s1)
+    li      t1, 32
+    bleu    t0, t1, 71f
+    mv      t0, t1
+71: SDO     t0, s2, DISCV5_ST_SUBNET4
+    ld      t0, DISCV5_CFG_SUBNET6(s1)
+    li      t1, 128
+    bleu    t0, t1, 72f
+    mv      t0, t1
+72: SDO     t0, s2, DISCV5_ST_SUBNET6
+    ld      t0, DISCV5_CFG_LIMIT_LAN(s1)
+    snez    t0, t0
+    SDO     t0, s2, DISCV5_ST_LIMIT_LAN
     mv      a0, s2
     addi    a1, s1, DISCV5_CFG_ENTROPY
     call    discv5_reseed
@@ -2098,10 +2115,166 @@ LOCAL_FUNCTION discv5_node_count
 END_FUNCTION discv5_node_count
 
 /*
+ * discv5_ip_lan(endpoint) -> 1 when the address is loopback, private or link
+ * local as Go's net/netip reports them (geth's AddrIsLAN), else 0. An
+ * IPv4-mapped IPv6 address counts as its IPv4 address. A leaf: a1 family,
+ * a2 the address, a3-a6 and t0 values.
+ */
+LOCAL_FUNCTION discv5_ip_lan
+    UNWIND_END_PROLOGUE
+    ld      a1, DISCV5_EP_FAMILY(a0)
+    addi    a2, a0, DISCV5_EP_ADDRESS
+    li      t0, 4
+    beq     a1, t0, 4f
+    ld      a3, 0(a2)                       # bytes 0-7
+    ld      a4, 8(a2)                       # bytes 8-15
+    bnez    a3, 6f
+    li      a5, 1
+    slli    a5, a5, 56
+    beq     a4, a5, 1f                      # ::1
+    slli    a5, a4, 32
+    srli    a5, a5, 32
+    li      a6, 0xFFFF0000
+    bne     a5, a6, 0f
+    addi    a2, a2, 12                      # ::ffff:a.b.c.d
+    j       4f
+6:  lbu     a5, 0(a2)
+    andi    a6, a5, 0xFE
+    li      t0, 0xFC
+    beq     a6, t0, 1f                      # fc00::/7
+    li      t0, 0xFE
+    bne     a5, t0, 0f
+    lbu     a6, 1(a2)
+    andi    a6, a6, 0xC0
+    li      t0, 0x80
+    beq     a6, t0, 1f                      # fe80::/10
+    j       0f
+4:  lbu     a5, 0(a2)
+    lbu     a6, 1(a2)
+    li      t0, 127
+    beq     a5, t0, 1f                      # 127/8
+    li      t0, 10
+    beq     a5, t0, 1f                      # 10/8
+    li      t0, 172
+    bne     a5, t0, 41f
+    andi    t0, a6, 0xF0
+    li      a3, 16
+    beq     t0, a3, 1f                      # 172.16/12
+    j       0f
+41: li      t0, 192
+    bne     a5, t0, 42f
+    li      t0, 168
+    beq     a6, t0, 1f                      # 192.168/16
+    j       0f
+42: li      t0, 169
+    bne     a5, t0, 0f
+    li      t0, 254
+    beq     a6, t0, 1f                      # 169.254/16
+0:  li      a0, 0
+    ret
+1:  li      a0, 1
+    ret
+END_FUNCTION discv5_ip_lan
+
+/* discv5_prefix_equal(a, b, bits) -> 1 when the first bits bits at a and b are equal, else 0. A leaf. */
+LOCAL_FUNCTION discv5_prefix_equal
+    UNWIND_END_PROLOGUE
+    li      t0, 8
+1:  bltu    a2, t0, 2f
+    lbu     a3, 0(a0)
+    lbu     a4, 0(a1)
+    bne     a3, a4, 0f
+    addi    a0, a0, 1
+    addi    a1, a1, 1
+    addi    a2, a2, -8
+    j       1b
+2:  beqz    a2, 3f
+    lbu     a3, 0(a0)
+    lbu     a4, 0(a1)
+    xor     a3, a3, a4
+    sub     a5, t0, a2
+    srl     a3, a3, a5
+    bnez    a3, 0f
+3:  li      a0, 1
+    ret
+0:  li      a0, 0
+    ret
+END_FUNCTION discv5_prefix_equal
+
+/*
+ * discv5_ip_fits(scratch, endpoint, bucket, exclude) -> 1 when a node at the
+ * endpoint keeps its subnet within the IP limits of the table and of the
+ * bucket, else 0. Every used slot but exclude counts. When the local
+ * network is left out of the limits, a local address always fits and never
+ * counts. s1 endpoint, s2 bucket, s3 exclude, s4 slot, s5 slots left,
+ * s6 table count, s7 bucket count, s8 prefix bits, s9 state.
+ */
+LOCAL_FUNCTION discv5_ip_fits
+    ENTER   0
+    mv      s10, a0
+    mv      s1, a1
+    mv      s2, a2
+    mv      s3, a3
+    STATE   s9
+    LDO     t0, s9, DISCV5_ST_BUCKET_IP_LIMIT
+    LDO     t1, s9, DISCV5_ST_TABLE_IP_LIMIT
+    or      t0, t0, t1
+    beqz    t0, 8f                          # no limits
+    LDO     t0, s9, DISCV5_ST_LIMIT_LAN
+    bnez    t0, 1f
+    mv      a0, s1
+    call    discv5_ip_lan
+    bnez    a0, 8f                          # a local address
+1:  ld      t0, DISCV5_EP_FAMILY(s1)
+    LDO     s8, s9, DISCV5_ST_SUBNET4
+    li      t1, 4
+    beq     t0, t1, 2f
+    LDO     s8, s9, DISCV5_ST_SUBNET6
+2:  ADDO    s4, s9, DISCV5_ST_NODES
+    li      s5, DISCV5_NODE_SLOTS
+    li      s6, 0
+    li      s7, 0
+3:  lbu     t0, DISCV5_N_STATE(s4)
+    beqz    t0, 7f
+    beq     s4, s3, 7f
+    ld      t0, DISCV5_N_EP+DISCV5_EP_FAMILY(s4)
+    ld      t1, DISCV5_EP_FAMILY(s1)
+    bne     t0, t1, 7f
+    addi    a0, s4, DISCV5_N_EP+DISCV5_EP_ADDRESS
+    addi    a1, s1, DISCV5_EP_ADDRESS
+    mv      a2, s8
+    call    discv5_prefix_equal
+    beqz    a0, 7f
+    LDO     t0, s9, DISCV5_ST_LIMIT_LAN
+    bnez    t0, 5f
+    addi    a0, s4, DISCV5_N_EP
+    call    discv5_ip_lan
+    bnez    a0, 7f                          # a local address never counts
+5:  addi    s6, s6, 1
+    lbu     t0, DISCV5_N_BUCKET(s4)
+    bne     t0, s2, 7f
+    addi    s7, s7, 1
+7:  addi    s4, s4, DISCV5_N_SIZE
+    addi    s5, s5, -1
+    bnez    s5, 3b
+    li      a0, 0
+    LDO     t0, s9, DISCV5_ST_TABLE_IP_LIMIT
+    beqz    t0, 71f
+    bgeu    s6, t0, 9f
+71: LDO     t0, s9, DISCV5_ST_BUCKET_IP_LIMIT
+    beqz    t0, 8f
+    bgeu    s7, t0, 9f
+8:  li      a0, 1
+9:  LEAVE   0
+END_FUNCTION discv5_ip_fits
+
+/*
  * discv5_node_add(scratch, enr, record) -> the slot, or 0: adds a checked
  * record with a UDP endpoint to the table, or updates its slot when the
  * record is newer. A full bucket takes it as a replacement; a full
- * replacement list drops its oldest. s1 enr, s2 record, s3 slot,
+ * replacement list drops its oldest. A node that would pass an IP limit is
+ * left out; a newer record whose address would pass one is not taken, and
+ * the slot keeps the old record. s1 enr, s2 record, s3 slot,
  * s4 bucket, s5 kind. The endpoint at sp + FL.
  */
 LOCAL_FUNCTION discv5_node_add
@@ -2129,11 +2302,25 @@ LOCAL_FUNCTION discv5_node_add
     ld      t0, DISCV5_N_SEQ(s3)            # known: keep the newer record
     ld      t1, DISCV5_ENR_SEQ(s1)
     bgeu    t0, t1, 9f
+    mv      a0, s10
+    addi    a1, sp, FL
+    lbu     a2, DISCV5_N_BUCKET(s3)
+    mv      a3, s3
+    call    discv5_ip_fits
+    mv      t0, a0
+    mv      a0, s3
+    beqz    t0, 9f                          # the new address passes a limit
     j       6f
 1:  STATE   a0
     mv      a1, s1
     call    discv5_bucket
     mv      s4, a0
+    mv      a0, s10
+    addi    a1, sp, FL
+    mv      a2, s4
+    li      a3, 0
+    call    discv5_ip_fits
+    beqz    a0, 9f                          # the subnet is full
     mv      a0, s10
     mv      a1, s4
     li      a2, DISCV5_NODE_MEMBER

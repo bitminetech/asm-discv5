@@ -35,6 +35,7 @@ Inputs sit in buffers of their exact size and must stay unchanged. Outputs have 
 | nodes | Three nodes on a simulated network: two know only the third; after their handshakes and checks, a lookup by one finds the other, and a PONG reports the endpoint seen. |
 | errors | Short scratch or action room, and every malformed event kind, give their status and leave the state unchanged; datagrams that do not decode and shell results change nothing; the time never goes back. |
 | challenge | A packet without a session gets WHOAREYOU for its nonce; another within 1 second gets the same bytes; one after 1 second gets a new one. |
+| limits | A node with an IP limit config takes records one step at a time; after each step the node is in the table as a model of the table rules says, with subnet counts and the local network test from go-ethereum's `p2p/netutil`; at the end every node has the kind, bucket and endpoint of the model. |
 
 ## ABI and stack check
 

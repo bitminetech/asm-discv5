@@ -44,3 +44,4 @@ Fixed fields are zero padded to the sizes shown.
 | 2 nodes | Three private keys (32 each) |
 | 3 errors | A private key (32) |
 | 4 challenge | The node's private key (32), the sender's private key (32) |
+| 5 limits | Private key (32), the five IP limit config fields, the five values the state keeps, record count; each record: node ID (32), record (blob), its table kind after the step (0 when not in the table); then the table count; each node: node ID (32), kind, bucket, endpoint (32) |

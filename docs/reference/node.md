@@ -22,6 +22,9 @@
 - [`discv5_bucket`](#function-discv5_bucket): gives the bucket of a node ID.
 - [`discv5_node_find`](#function-discv5_node_find): finds a node in the table.
 - [`discv5_node_count`](#function-discv5_node_count): counts a bucket.
+- [`discv5_ip_lan`](#function-discv5_ip_lan): tests for a local network address.
+- [`discv5_prefix_equal`](#function-discv5_prefix_equal): compares the first bits of two addresses.
+- [`discv5_ip_fits`](#function-discv5_ip_fits): checks the IP limits.
 - [`discv5_node_add`](#function-discv5_node_add): adds a node to the table.
 - [`discv5_node_remove`](#function-discv5_node_remove): removes a node from the table.
 - [`discv5_msg_finish`](#function-discv5_msg_finish): finishes a message.
@@ -141,6 +144,7 @@ discv5_init(config, state) -> status
 - Zeroes `state`, then stores the key pair and the node ID.
 - Seeds the DRBG with the entropy.
 - Sets "id" = "v4", "secp256k1", and the address and port entries of the config.
+- Keeps the IP limit fields of the config; a subnet length above the address size counts as the address size, and a nonzero `limit_lan` as 1.
 - Signs the record at the sequence number.
 - Sets the first liveness check one interval after `now`.
 
@@ -829,6 +833,125 @@ discv5_node_count(scratch, bucket, kind) -> count, free, oldest
 - Convention: the core ABI for each ISA (ARCHITECTURE.md section 6). It returns the count in the result register, the free slot in the second argument register and the oldest slot in the third (rdx and rcx on x86-64).
 - Argument order: `scratch`, `bucket`, `kind`.
 
+## Function `discv5_ip_lan`
+
+Tests whether the address of an endpoint is on a local network.
+
+### Signature
+
+```
+discv5_ip_lan(endpoint) -> 1 or 0
+```
+
+### Arguments
+
+| Name | Role | Type |
+|---|---|---|
+| `endpoint` | input | `Endpoint` |
+
+### Function does
+
+- Returns 1 for loopback, private and link local addresses as Go's `net/netip` reports them, which geth's `AddrIsLAN` uses: 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7 and fe80::/10.
+- Tests an IPv4-mapped IPv6 address (::ffff:a.b.c.d) as its IPv4 address.
+- Returns 0 for any other address.
+
+### Function never
+
+- Writes memory.
+- Makes an OS call.
+
+### Limits
+
+- Stack of its own: 8 bytes on x86-64 (return address included), 0 bytes on ARM64, 0 bytes on RISC-V.
+
+### ABI
+
+- Role: L0.
+- Symbol: `discv5_ip_lan`, local to its object.
+- Convention: the core ABI for each ISA (ARCHITECTURE.md section 6). It returns 1 or 0, not a status.
+- Argument order: `endpoint`.
+
+## Function `discv5_prefix_equal`
+
+Compares the first bits of two byte strings.
+
+### Signature
+
+```
+discv5_prefix_equal(a, b, bits) -> 1 or 0
+```
+
+### Arguments
+
+| Name | Role | Type |
+|---|---|---|
+| `a` | input | bytes |
+| `b` | input | bytes |
+| `bits` | input | u64 in a register |
+
+### Function does
+
+- Returns 1 when the first `bits` bits of `a` and `b` are equal, else 0; 0 bits are always equal.
+- Reads at most `bits` / 8 bytes, rounded up, of each.
+
+### Function never
+
+- Writes memory.
+- Makes an OS call.
+
+### Limits
+
+- Stack of its own: 8 bytes on x86-64 (return address included), 0 bytes on ARM64, 0 bytes on RISC-V.
+
+### ABI
+
+- Role: L0.
+- Symbol: `discv5_prefix_equal`, local to its object.
+- Convention: the core ABI for each ISA (ARCHITECTURE.md section 6). It returns 1 or 0, not a status.
+- Argument order: `a`, `b`, `bits`.
+
+## Function `discv5_ip_fits`
+
+Checks a node endpoint against the IP limits of the table and of a bucket.
+
+### Signature
+
+```
+discv5_ip_fits(scratch, endpoint, bucket, exclude) -> 1 or 0
+```
+
+### Arguments
+
+| Name | Role | Type |
+|---|---|---|
+| `scratch` | scratch | `StepScratch` |
+| `endpoint` | input | `Endpoint` |
+| `bucket` | input | u64 in a register |
+| `exclude` | input | a `NodeSlot` not to count, or 0 |
+
+### Function does
+
+- Returns 1 when both limits are 0.
+- Returns 1 for a local network address while `limit_lan` is 0.
+- Counts the members and replacements other than `exclude` in the same subnet: the same family and the same first `subnet4` or `subnet6` bits; while `limit_lan` is 0, local network addresses do not count.
+- Returns 0 when the table count reaches `table_ip_limit`, or the count in `bucket` reaches `bucket_ip_limit`; a limit of 0 does not apply.
+- Else returns 1.
+
+### Function never
+
+- Makes an OS call.
+
+### Limits
+
+- Stack of its own: 96 bytes on x86-64 (return address included), 96 bytes on ARM64, 112 bytes on RISC-V.
+
+### ABI
+
+- Role: L0.
+- Symbol: `discv5_ip_fits`, local to its object.
+- Convention: the core ABI for each ISA (ARCHITECTURE.md section 6). It returns 1 or 0, not a status.
+- Argument order: `scratch`, `endpoint`, `bucket`, `exclude`.
+
 ## Function `discv5_node_add`
 
 Adds a checked record with a UDP endpoint to the table.
@@ -851,6 +974,8 @@ discv5_node_add(scratch, enr, record) -> slot or 0
 
 - Leaves out the local node and records with no UDP endpoint.
 - Updates a known node when the record is newer.
+- Leaves out a new node when `discv5_ip_fits` refuses its endpoint.
+- Keeps the old record of a known node when `discv5_ip_fits` refuses the endpoint of the newer record, with the node itself not counted.
 - Adds a member while its bucket has fewer than 16, else a replacement; with 10 replacements the oldest gives way.
 - Sets the first refresh lookup one interval ahead when it adds the first node.
 
@@ -2289,10 +2414,20 @@ The input of `discv5_init`.
 | 40 | `entropy` | 32 bytes | Random bytes for the DRBG |
 | 72 | `now` | u64 | Milliseconds |
 | 80 | `endpoint` | `Endpoint` | The address and port for the record; family 0 for none, port 0 for no port |
+| 112 | `bucket_ip_limit` | u64 | The most table nodes of one bucket in one subnet; 0 for no limit |
+| 120 | `table_ip_limit` | u64 | The most table nodes in one subnet; 0 for no limit |
+| 128 | `subnet4` | u64 | The prefix length of an IPv4 subnet in bits; above 32 counts as 32 |
+| 136 | `subnet6` | u64 | The prefix length of an IPv6 subnet in bits; above 128 counts as 128 |
+| 144 | `limit_lan` | u64 | 0: local network addresses are left out of the limits; else they count |
 
 ### Rules
 
-- Size: 112 bytes.
+- Size: 152 bytes.
+- The IP limits count members and replacements together.
+- Both limits 0: no IP limit applies.
+- go-ethereum v1.17.10 `p2p/discover`: 2, 10, 24, 24 and 0.
+- nim-eth at 57da57b, `discoveryv5`: 2 and 10, with /24 IPv4 and /64 IPv6 subnets.
+- sigp discv5 0.12.0 with `ip_limit`: 2 and 10 for IPv4 /24 subnets only, local addresses included.
 
 ## Type `Tick`
 
@@ -2348,15 +2483,20 @@ The node: keys, DRBG, record, timers and tables, at fixed offsets.
 | 192 | `record` | 300 bytes | The local record |
 | 496 | `entry_count` | u64 | Entries in use |
 | 504 | `entries` | [`LocalEntry`](enr.md#type-localentry) [16] | Sorted by key |
-| 2056 | `nodes` | `NodeSlot` [442] | The node table |
-| 200072 | `sessions` | `Session` [256] | Session keys |
-| 228744 | `challenges` | `ChallengeSlot` [32] | WHOAREYOU packets sent |
-| 233096 | `requests` | `Request` [32] | Requests waiting |
-| 237960 | `lookups` | `Lookup` [4] | Running lookups |
+| 2056 | `bucket_ip_limit` | u64 | From the config |
+| 2064 | `table_ip_limit` | u64 | From the config |
+| 2072 | `subnet4` | u64 | From the config, at most 32 |
+| 2080 | `subnet6` | u64 | From the config, at most 128 |
+| 2088 | `limit_lan` | u64 | From the config, 0 or 1 |
+| 2096 | `nodes` | `NodeSlot` [442] | The node table |
+| 200112 | `sessions` | `Session` [256] | Session keys |
+| 228784 | `challenges` | `ChallengeSlot` [32] | WHOAREYOU packets sent |
+| 233136 | `requests` | `Request` [32] | Requests waiting |
+| 238000 | `lookups` | `Lookup` [4] | Running lookups |
 
 ### Rules
 
-- Size: 245352 bytes (`DISCV5_STATE_SIZE`).
+- Size: 245392 bytes (`DISCV5_STATE_SIZE`).
 - It holds no pointers and can be copied as one block.
 - It holds secrets: the private key, the DRBG key and session keys.
 

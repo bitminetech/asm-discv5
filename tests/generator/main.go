@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"math/rand"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/discover/v5wire"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/enr"
+	"github.com/ethereum/go-ethereum/p2p/netutil"
 	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/hkdf"
 )
@@ -65,6 +67,7 @@ const (
 	StepNodes     = 2 // three nodes discover each other
 	StepErrors    = 3 // calls that must fail and change nothing
 	StepChallenge = 4 // WHOAREYOU for a packet without a session
+	StepLimits    = 5 // IP limits of the node table
 )
 
 // Event kinds and the status of an event list that breaks the rules.
@@ -970,7 +973,309 @@ func steps(dir string) {
 	for i := 0; i < 4; i++ {
 		f.add(KStep, fmt.Sprintf("challenge/%d", i), u64(StepChallenge), crypto.FromECDSA(randomKey()), crypto.FromECDSA(randomKey()))
 	}
+	limits(f)
 	f.write(dir)
+}
+
+// ---------------------------------------------------------------- IP limits
+
+// A node of the table model, or a key the limits cases have used.
+type tableNode struct {
+	id     enode.ID
+	key    *ecdsa.PrivateKey
+	kind   uint64 // 1 member, 2 replacement
+	bucket int
+	addr   netip.Addr
+	port   uint64
+	seq    uint64
+	added  uint64
+}
+
+// The node table model: the rules of discv5_node_add in docs/reference/node.md,
+// with the subnet counts and local network test of go-ethereum's p2p/netutil
+// (DistinctNetSet, AddrIsLAN), as geth's table uses them.
+type tableModel struct {
+	local                 enode.ID
+	bucketLimit, tableLim uint64
+	subnet4, subnet6      uint
+	limitLAN              bool
+	nodes                 []*tableNode
+}
+
+func (t *tableModel) find(id enode.ID) *tableNode {
+	for _, n := range t.nodes {
+		if n.id == id {
+			return n
+		}
+	}
+	return nil
+}
+
+func (t *tableModel) bucketOf(id enode.ID) int {
+	if d := enode.LogDist(t.local, id); d > 240 {
+		return d - 240
+	}
+	return 0
+}
+
+// fits reports whether a node at addr keeps its subnet within the limits,
+// counting every node but skip.
+func (t *tableModel) fits(addr netip.Addr, bucket int, skip *tableNode) bool {
+	if t.bucketLimit == 0 && t.tableLim == 0 {
+		return true
+	}
+	if !t.limitLAN && netutil.AddrIsLAN(addr) {
+		return true
+	}
+	bits := t.subnet6
+	if addr.Is4() {
+		bits = t.subnet4
+	}
+	none := uint(1 << 20)
+	tableSet := netutil.DistinctNetSet{Subnet: bits, Limit: none}
+	bucketSet := netutil.DistinctNetSet{Subnet: bits, Limit: none}
+	if t.tableLim != 0 {
+		tableSet.Limit = uint(t.tableLim)
+	}
+	if t.bucketLimit != 0 {
+		bucketSet.Limit = uint(t.bucketLimit)
+	}
+	for _, n := range t.nodes {
+		if n == skip || n.addr.Is4() != addr.Is4() || (!t.limitLAN && netutil.AddrIsLAN(n.addr)) {
+			continue
+		}
+		if !tableSet.AddAddr(n.addr) {
+			fail("table model: the table passes its limit")
+		}
+		if n.bucket == bucket && !bucketSet.AddAddr(n.addr) {
+			fail("table model: a bucket passes its limit")
+		}
+	}
+	return tableSet.AddAddr(addr) && bucketSet.AddAddr(addr)
+}
+
+// add takes a record at time now, as an ADD_NODE event does.
+func (t *tableModel) add(key *ecdsa.PrivateKey, seq uint64, addr netip.Addr, port, now uint64) {
+	id := enode.PubkeyToIDV4(&key.PublicKey)
+	if n := t.find(id); n != nil {
+		if seq > n.seq && t.fits(addr, n.bucket, n) {
+			n.addr, n.port, n.seq = addr, port, seq
+		}
+		return
+	}
+	b := t.bucketOf(id)
+	if !t.fits(addr, b, nil) {
+		return
+	}
+	members, replacements := 0, []*tableNode{}
+	for _, n := range t.nodes {
+		if n.bucket == b && n.kind == 1 {
+			members++
+		} else if n.bucket == b {
+			replacements = append(replacements, n)
+		}
+	}
+	kind := uint64(1)
+	if members >= 16 {
+		kind = 2
+		if len(replacements) >= 10 {
+			oldest := replacements[0]
+			for _, r := range replacements {
+				if r.added < oldest.added {
+					oldest = r
+				}
+			}
+			for i, n := range t.nodes {
+				if n == oldest {
+					t.nodes = append(t.nodes[:i], t.nodes[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+	t.nodes = append(t.nodes, &tableNode{id: id, key: key, kind: kind, bucket: b, addr: addr, port: port, seq: seq, added: now})
+}
+
+// endpointBytes is an Endpoint: port, family, address (16).
+func endpointBytes(addr netip.Addr, port uint64) []byte {
+	if addr.Is4() {
+		a := addr.As4()
+		return append(append(u64(port), u64(4)...), fixed(a[:], 16)...)
+	}
+	a := addr.As16()
+	return append(append(u64(port), u64(6)...), a[:]...)
+}
+
+// limitAddr draws an address from a pool built to hit the same subnets, the
+// local networks of net/netip, and the addresses next to their edges.
+func limitAddr(bases4 [][2]byte, bases6 [][6]byte) netip.Addr {
+	b := func(v ...int) byte { return byte(v[rng.Intn(len(v))]) }
+	r := byte(1 + rng.Intn(255))
+	switch k := rng.Intn(100); {
+	case k < 40:
+		base := bases4[rng.Intn(len(bases4))]
+		return netip.AddrFrom4([4]byte{base[0], base[1], b(0, 1, 2, 16, 17, 128), r})
+	case k < 55:
+		lan := [][4]byte{{10, b(0, 255), b(0, 1), r}, {127, b(0, 255), b(0, 1), r}, {172, b(16, 17, 24, 31), b(0, 1), r},
+			{192, 168, b(0, 1), r}, {169, 254, b(0, 1), r}}
+		return netip.AddrFrom4(lan[rng.Intn(len(lan))])
+	case k < 65:
+		near := [][4]byte{{172, b(0, 15, 32, 48, 255), 0, r}, {192, b(167, 169), 0, r}, {b(191, 193), 168, 0, r},
+			{169, b(253, 255), 0, r}, {168, 254, 0, r}, {b(9, 11, 126, 128), 0, 0, r}}
+		return netip.AddrFrom4(near[rng.Intn(len(near))])
+	case k < 80:
+		base := bases6[rng.Intn(len(bases6))]
+		var a [16]byte
+		copy(a[:], base[:])
+		a[6], a[7], a[8] = b(0, 1), b(0, 0x80, 0x81), b(0, 1)
+		a[15] = r
+		return netip.AddrFrom16(a)
+	case k < 90:
+		var a [16]byte
+		switch rng.Intn(5) {
+		case 0:
+			a[0], a[1] = b(0xfc, 0xfd), b(0, 1)
+		case 1:
+			a[0], a[1] = 0xfe, b(0x80, 0x95, 0xa0, 0xbf)
+		case 2:
+			a[15] = 1
+		default:
+			a[10], a[11], a[12], a[13], a[14] = 0xff, 0xff, b(10, 127), b(0, 168), b(0, 1)
+			if rng.Intn(2) == 0 {
+				a[12], a[13] = b(172, 192, 169), b(16, 31, 168, 254)
+			}
+		}
+		if a[15] == 0 {
+			a[15] = r
+		}
+		return netip.AddrFrom16(a)
+	default:
+		var a [16]byte
+		switch rng.Intn(6) {
+		case 0:
+			a[0], a[1] = 0xfe, b(0x7f, 0xc0, 0xff)
+		case 1:
+			a[0] = b(0xfb, 0xfe, 0xff)
+		case 2:
+			a[15] = b(2, 3)
+		case 3:
+			a[14], a[15] = 1, 1
+		case 4:
+			a[9], a[10], a[11], a[12], a[13] = b(0, 1), 0xff, b(0xff, 0xfe), 10, 0
+		default:
+			a[10], a[11], a[12], a[13] = 0xff, 0xff, b(8, 11, 172, 192), b(8, 32, 169)
+		}
+		if a[14] == 0 && a[15] == 0 || a[0] != 0 {
+			a[15] = r
+		}
+		return netip.AddrFrom16(a)
+	}
+}
+
+// limits adds the limits cases: a node with an IP limit config takes one
+// ADD_NODE per step, each before the first liveness check, so only the
+// limits and the table rules decide the table. A case holds the config, the
+// values the state keeps, each record with the node's table kind after its
+// step (0 when not in the table), then the whole table.
+func limits(f *file) {
+	configs := [][5]uint64{
+		{0, 0, 24, 24, 0},
+		{2, 10, 24, 24, 0},
+		{2, 10, 24, 64, 0},
+		{1, 3, 24, 64, 1},
+		{2, 0, 16, 48, 0},
+		{0, 4, 32, 128, 1},
+		{3, 5, 20, 57, 0},
+		{2, 6, 40, 200, 7},
+		{0, 1, 0, 0, 0},
+		{1, 1, 8, 8, 0},
+		{1, 1, 0, 0, 1},
+	}
+	for round := 0; round < 3; round++ {
+		for ci, cfg := range configs {
+			localKey := randomKey()
+			t := &tableModel{local: enode.PubkeyToIDV4(&localKey.PublicKey), bucketLimit: cfg[0], tableLim: cfg[1],
+				subnet4: uint(min(cfg[2], 32)), subnet6: uint(min(cfg[3], 128)), limitLAN: cfg[4] != 0}
+			stored := []uint64{cfg[0], cfg[1], uint64(t.subnet4), uint64(t.subnet6), 0}
+			if t.limitLAN {
+				stored[4] = 1
+			}
+			var bases4 [][2]byte
+			for len(bases4) < 3 {
+				a := [2]byte{byte(1 + rng.Intn(223)), byte(rng.Intn(256))}
+				if !netutil.AddrIsLAN(netip.AddrFrom4([4]byte{a[0], a[1], 0, 1})) {
+					bases4 = append(bases4, a)
+				}
+			}
+			var bases6 [][6]byte
+			for i := 0; i < 3; i++ {
+				var a [6]byte
+				copy(a[:], randBytes(6))
+				a[0] = byte(0x20 + rng.Intn(16))
+				bases6 = append(bases6, a)
+			}
+			n := 70 + rng.Intn(40)
+			var known []*tableNode
+			var body []byte
+			for i := 0; i < n; i++ {
+				now := uint64(1001 + i)
+				key, seq := randomKey(), uint64(1+rng.Intn(5))
+				addr, port := limitAddr(bases4, bases6), uint64(1025+rng.Intn(60000))
+				if len(known) > 0 && rng.Intn(5) == 0 {
+					old := known[rng.Intn(len(known))]
+					key, seq = old.key, old.seq+1
+					switch rng.Intn(5) {
+					case 0:
+						addr, port = old.addr, old.port
+					case 1:
+						seq = old.seq
+					}
+				}
+				entries := map[string][]byte{}
+				if addr.Is4() {
+					a := addr.As4()
+					entries["ip"], entries["udp"] = a[:], portBytes(port)
+				} else {
+					a := addr.As16()
+					entries["ip6"], entries["udp6"] = a[:], portBytes(port)
+				}
+				rec := recordOf(key, seq, entries)
+				id := enode.PubkeyToIDV4(&key.PublicKey)
+				issued := false
+				for _, k := range known {
+					if k.key == key {
+						issued = true
+						if seq > k.seq {
+							k.addr, k.port, k.seq = addr, port, seq
+						}
+					}
+				}
+				if !issued {
+					known = append(known, &tableNode{key: key, addr: addr, port: port, seq: seq})
+				}
+				t.add(key, seq, addr, port, now)
+				kind := uint64(0)
+				if nd := t.find(id); nd != nil {
+					kind = nd.kind
+				}
+				body = append(append(append(body, id[:]...), blob(rec)...), u64(kind)...)
+			}
+			var table []byte
+			for _, nd := range t.nodes {
+				table = append(append(append(append(table, nd.id[:]...), u64(nd.kind)...), u64(uint64(nd.bucket))...),
+					endpointBytes(nd.addr, nd.port)...)
+			}
+			var head []byte
+			for _, v := range cfg {
+				head = append(head, u64(v)...)
+			}
+			for _, v := range stored {
+				head = append(head, u64(v)...)
+			}
+			f.add(KStep, fmt.Sprintf("limits/%d/%d", round, ci), u64(StepLimits), crypto.FromECDSA(localKey), head,
+				u64(uint64(n)), body, u64(uint64(len(t.nodes))), table)
+		}
+	}
 }
 
 // ---------------------------------------------------------------- Main

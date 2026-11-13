@@ -105,7 +105,12 @@
 .set DISCV5_CFG_PORT, 80            /* u64, the UDP port for the record, 0 for none */
 .set DISCV5_CFG_FAMILY, 88          /* u64, 4 or 6, 0 for no address */
 .set DISCV5_CFG_ADDRESS, 96         /* 16 bytes; an IPv4 address uses the first 4 */
-.set DISCV5_CFG_SIZE, 112
+.set DISCV5_CFG_BUCKET_IP_LIMIT, 112 /* u64, most table nodes of one bucket in one subnet, 0 for no limit */
+.set DISCV5_CFG_TABLE_IP_LIMIT, 120 /* u64, most table nodes in one subnet, 0 for no limit */
+.set DISCV5_CFG_SUBNET4, 128        /* u64, IPv4 subnet prefix bits; above 32 counts as 32 */
+.set DISCV5_CFG_SUBNET6, 136        /* u64, IPv6 subnet prefix bits; above 128 counts as 128 */
+.set DISCV5_CFG_LIMIT_LAN, 144      /* u64, 0 leaves local network addresses out of the limits */
+.set DISCV5_CFG_SIZE, 152
 
 /* discv5_step input: the time and fresh random bytes. */
 .set DISCV5_TICK_NOW, 0             /* u64, milliseconds, never decreasing */
@@ -257,7 +262,12 @@
 .set DISCV5_ST_RECORD, 192          /* 300 bytes, the local record */
 .set DISCV5_ST_ENTRY_COUNT, 496     /* u64, local key/value pairs */
 .set DISCV5_ST_ENTRIES, 504         /* DISCV5_MAX_ENTRIES local entries */
-.set DISCV5_ST_NODES, 2056          /* the node table */
+.set DISCV5_ST_BUCKET_IP_LIMIT, 2056 /* u64, from the config */
+.set DISCV5_ST_TABLE_IP_LIMIT, 2064 /* u64, from the config */
+.set DISCV5_ST_SUBNET4, 2072        /* u64, from the config, at most 32 */
+.set DISCV5_ST_SUBNET6, 2080        /* u64, from the config, at most 128 */
+.set DISCV5_ST_LIMIT_LAN, 2088      /* u64, from the config */
+.set DISCV5_ST_NODES, 2096          /* the node table */
 
 /* Local record entries, sorted by key. */
 .set DISCV5_MAX_ENTRIES, 16

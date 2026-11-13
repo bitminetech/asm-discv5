@@ -5,6 +5,7 @@
  * nodes:     three nodes on a simulated network discover each other.
  * errors:    calls that must fail leave the state unchanged.
  * challenge: WHOAREYOU for packets without a session, sent again unchanged.
+ * limits:    the IP limits of the node table, against a model of geth's rules.
  *
  * Every step goes through CALL, so the stack cap and ABI checks cover it, and
  * every action list it returns must be well formed and end with WAKEUP.
@@ -18,8 +19,12 @@
 #define ST_NODE_ID 72
 #define ST_SEQ 104
 #define ST_NOW 152
+#define ST_BUCKET_IP_LIMIT 2056
+#define N_EP 72
+#define N_STATE 104
+#define N_BUCKET 105
 
-enum { SUB_RECORD = 1, SUB_NODES = 2, SUB_ERRORS = 3, SUB_CHALLENGE = 4 };
+enum { SUB_RECORD = 1, SUB_NODES = 2, SUB_ERRORS = 3, SUB_CHALLENGE = 4, SUB_LIMITS = 5 };
 
 static const char *FILE_NAME = "step.bin";
 
@@ -543,6 +548,76 @@ static int case_challenge(cursor *c, const char *name) {
     return note(F_STEP, ok, FILE_NAME, name);
 }
 
+/* ---------------------------------------------------------------- limits */
+
+/* The table slot of a node ID, or NULL. */
+static const uint8_t *slot_of(const uint8_t *state, const uint8_t *id) {
+    for (size_t i = 0; i < DISCV5_NODE_SLOTS; i++) {
+        const uint8_t *n = state + DISCV5_ST_NODES + i * DISCV5_N_SIZE;
+        if (n[N_STATE] && memcmp(n, id, 32) == 0)
+            return n;
+    }
+    return NULL;
+}
+
+/*
+ * A node with an IP limit config takes one ADD_NODE per step, all before its
+ * first liveness check. After each step the node is in the table as the
+ * model says, and at the end the whole table matches: kind, bucket and
+ * endpoint of every node.
+ */
+static int case_limits(cursor *c, const char *name) {
+    const uint8_t *key = take(c, 32);
+    uint64_t cfgv[5], kept[5];
+    for (int k = 0; k < 5; k++)
+        cfgv[k] = take64(c);
+    for (int k = 0; k < 5; k++)
+        kept[k] = take64(c);
+    uint8_t cfg[DISCV5_CFG_SIZE];
+    memset(cfg, 0, sizeof cfg);
+    memcpy(cfg, key, 32);
+    wr64(cfg + 32, 1);
+    for (int i = 0; i < 32; i++)
+        cfg[40 + i] = (uint8_t)(key[i] ^ (i * 31));
+    wr64(cfg + 72, 1000);
+    for (int k = 0; k < 5; k++)
+        wr64(cfg + 112 + 8 * k, cfgv[k]);
+    uint8_t *state = xmalloc(DISCV5_STATE_SIZE);
+    int ok = CALL(F_INIT, cfg, state) == DISCV5_OK;
+    for (int k = 0; k < 5; k++)
+        ok &= rd64(state + ST_BUCKET_IP_LIMIT + 8 * k) == kept[k];
+    uint64_t n = take64(c);
+    evlist e = ev_new(512);
+    for (uint64_t i = 0; i < n; i++) {
+        const uint8_t *id = take(c, 32);
+        blob rec = take_blob(c);
+        uint64_t kind = take64(c);
+        ev_clear(&e);
+        add_record_event(&e, rec.p, (size_t)rec.n);
+        ok &= step(state, 1001 + i, i, &e, &ok) == DISCV5_OK;
+        const uint8_t *s = slot_of(state, id);
+        if ((s ? s[N_STATE] : 0) != kind) {
+            fprintf(stderr, "%s: %s: event %llu: kind %d, want %llu\n", FILE_NAME, name, (unsigned long long)i,
+                    s ? s[N_STATE] : 0, (unsigned long long)kind);
+            ok = 0;
+        }
+    }
+    uint64_t count = take64(c), used = 0;
+    for (size_t i = 0; i < DISCV5_NODE_SLOTS; i++)
+        used += state[DISCV5_ST_NODES + i * DISCV5_N_SIZE + N_STATE] != 0;
+    ok &= used == count;
+    for (uint64_t i = 0; i < count; i++) {
+        const uint8_t *id = take(c, 32);
+        uint64_t kind = take64(c), bucket = take64(c);
+        const uint8_t *ep = take(c, 32);
+        const uint8_t *s = slot_of(state, id);
+        ok &= s && s[N_STATE] == kind && s[N_BUCKET] == bucket && memcmp(s + N_EP, ep, 32) == 0;
+    }
+    free(e.p);
+    free(state);
+    return note(F_STEP, ok, FILE_NAME, name);
+}
+
 /* ---------------------------------------------------------------- Dispatch */
 
 int case_step(cursor *c, const char *name) {
@@ -551,6 +626,7 @@ int case_step(cursor *c, const char *name) {
     case SUB_NODES: return case_nodes(c, name);
     case SUB_ERRORS: return case_errors(c, name);
     case SUB_CHALLENGE: return case_challenge(c, name);
+    case SUB_LIMITS: return case_limits(c, name);
     default: fprintf(stderr, "%s: %s: unknown step case\n", FILE_NAME, name); exit(2);
     }
 }
