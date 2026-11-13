@@ -3,12 +3,15 @@
  * around the assembly core and shell. Test code: the library itself is
  * assembly.
  *
- * Usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-b ENR_TEXT]...
+ * Usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-b ENR_TEXT]...
  * Prints the node's ENR text on the first line, then serves until killed.
+ * IP 0.0.0.0 binds every interface and leaves the address out of the record.
  * -v prints every action. -l looks up a random node ID every SECONDS, or
  * the node ID given with -t HEX.
  * -b adds a node record (enr:...) to the table. -x stops after SECONDS: it
  * closes the socket and prints "closed".
+ * -c prints "peer N ID enr:..." for each new node ID that lookups find, and
+ * stops after COUNT of them.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -38,6 +41,7 @@ DISCV5_ABI uint64_t discv5_shell_close(void *context);
 #define ACTIONS_PER_EVENT 16384
 #define EVENT_MAX 1336
 #define MAX_EVENTS 256
+#define MAX_BOOT 64
 enum { EV_DATAGRAM = 1, EV_ADD_NODE = 2, EV_LOOKUP = 3, EV_OPENED = 6, EV_SENT = 7, EV_IDLE = 8 };
 enum { ACT_SEND = 1, ACT_NODE_FOUND = 2, ACT_LOOKUP_DONE = 3, ACT_ENDPOINT = 4, ACT_RECORD = 5, ACT_WAKEUP = 6 };
 
@@ -107,6 +111,18 @@ static int parse_hex32(const char *s, uint8_t out[32]) {
     return 1;
 }
 
+/* The node IDs that lookups found, for -c. */
+static uint8_t (*peers)[32];
+static size_t npeers;
+
+static int peer_add(const uint8_t id[32]) {
+    for (size_t i = 0; i < npeers; i++)
+        if (!memcmp(peers[i], id, 32))
+            return 0;
+    memcpy(peers[npeers++], id, 32);
+    return 1;
+}
+
 /* The events list for the next step. */
 static uint8_t *events;
 static size_t events_cap;
@@ -133,12 +149,12 @@ static size_t event_count(void) {
 
 int main(int argc, char **argv) {
     int verbose = 0;
-    uint64_t every = 0, stop_after = 0;
+    uint64_t every = 0, stop_after = 0, collect = 0;
     uint8_t target[32];
     int fixed_target = 0;
     const char *args[3] = {0};
     int nargs = 0;
-    const char *boot[16];
+    const char *boot[MAX_BOOT];
     int nboot = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-v"))
@@ -149,17 +165,22 @@ int main(int argc, char **argv) {
             stop_after = 1000 * (uint64_t)strtoul(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "-t") && i + 1 < argc)
             fixed_target = parse_hex32(argv[++i], target);
-        else if (!strcmp(argv[i], "-b") && i + 1 < argc && nboot < 16)
+        else if (!strcmp(argv[i], "-c") && i + 1 < argc)
+            collect = strtoull(argv[++i], NULL, 10);
+        else if (!strcmp(argv[i], "-b") && i + 1 < argc && nboot < MAX_BOOT)
             boot[nboot++] = argv[++i];
         else if (nargs < 3)
             args[nargs++] = argv[i];
     }
     uint8_t ip[4];
     if (nargs < 2 || !parse_ip4(args[0], ip)) {
-        fprintf(stderr, "usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-b ENR_TEXT]...\n");
+        fprintf(stderr, "usage: node IP PORT [KEY_HEX] [-v] [-l SECONDS [-t HEX]] [-x SECONDS] [-c COUNT] [-b ENR_TEXT]...\n");
         return 2;
     }
     long port = strtol(args[1], NULL, 10);
+    int any = !ip[0] && !ip[1] && !ip[2] && !ip[3];
+    if (collect)
+        peers = xalloc(collect * 32);
 
     uint8_t *state = xalloc(STATE_SIZE);
     uint8_t *scratch = xalloc(SCRATCH_SIZE);
@@ -190,9 +211,11 @@ int main(int argc, char **argv) {
         wr64(config + 32, 1);
         memcpy(config + 40, tick + 8, 32);
         wr64(config + 72, rd64(tick));
-        wr64(config + 80, (uint64_t)port);
-        wr64(config + 88, 4);
-        memcpy(config + 96, ip, 4);
+        if (!any) {
+            wr64(config + 80, (uint64_t)port);
+            wr64(config + 88, 4);
+            memcpy(config + 96, ip, 4);
+        }
         uint64_t st = discv5_init(config, state);
         if (st == 0)
             break;
@@ -243,7 +266,7 @@ int main(int argc, char **argv) {
     }
 
     /* The loop: step, perform the actions, wait for a datagram or the wakeup time. */
-    uint64_t until = 0, next_lookup = 0, stop_at = stop_after ? rd64(tick) + stop_after : 0;
+    uint64_t until = 0, next_lookup = 0, stop_at = stop_after ? rd64(tick) + stop_after : 0, started = rd64(tick);
     for (;;) {
         if (discv5_shell_clock(tick)) {
             fprintf(stderr, "node: no clock or random bytes\n");
@@ -292,6 +315,19 @@ int main(int argc, char **argv) {
                 event_add();
             } else if (kind == ACT_WAKEUP) {
                 until = rd64(a + 16);
+            } else if (collect && kind == ACT_NODE_FOUND) {
+                if (peer_add(a + 16)) {
+                    printf("peer %llu ", (unsigned long long)npeers);
+                    hex(a + 16, 32);
+                    printf(" ");
+                    print_enr(a + 56, rd64(a + 48));
+                }
+                if (npeers >= collect) {
+                    printf("collected %llu peers in %llu ms\n", (unsigned long long)npeers,
+                           (unsigned long long)(rd64(tick) - started));
+                    discv5_shell_close(context);
+                    return 0;
+                }
             } else if (verbose && kind == ACT_NODE_FOUND) {
                 printf("found ");
                 hex(a + 16, 32);

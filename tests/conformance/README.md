@@ -34,3 +34,5 @@ The second tester address is 127.0.0.2 on Linux, where the loopback takes all of
 | `-b ENR` | Adds a record, such as a bootnode. |
 | `-l SECONDS` | Looks up a random node ID every SECONDS; `-t HEX` fixes the target. |
 | `-x SECONDS` | Stops after SECONDS: closes the socket and prints "closed". |
+| `-c COUNT` | Prints "peer N ID enr:..." for each new node ID that lookups find, and stops after COUNT of them. |
+| IP `0.0.0.0` | Binds every interface and leaves the address out of the record. |
