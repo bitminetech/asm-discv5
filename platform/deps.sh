@@ -12,5 +12,5 @@ fetch() {
         git -C "$dir" checkout -q FETCH_HEAD
     fi
 }
-fetch asm-crypto fc3ab5fdb5402d03414f1a2ff229abf48abed5ca    # README Dependencies
+fetch asm-crypto 70753eea4f8a4e937b706d9308828c7ff3a14b40    # README Dependencies
 fetch asm-rlp 40cca377a1621ed660a73724192a4a0b2c059a84       # README Dependencies
