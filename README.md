@@ -29,7 +29,7 @@ Standard: [asm-standard@2a19d3f](https://github.com/bitminetech/asm-standard/blo
 
 | Repo | Commit | Functions used |
 |---|---|---|
-| [asm-crypto](https://github.com/bitminetech/asm-crypto) | [`745aaf5`](https://github.com/bitminetech/asm-crypto/tree/745aaf5954c57bb65289f474326d5c566e4d653e) | `crypto_sha256`, `crypto_keccak256`, `crypto_hkdf_extract`, `crypto_hkdf_expand`, `crypto_aes128_ctr`, `crypto_aes128_gcm_ae`, `crypto_aes128_gcm_ad`, `crypto_secp256k1_public_key`, `crypto_secp256k1_decompress`, `crypto_secp256k1_ecdh`, `crypto_secp256k1_sign`, `crypto_secp256k1_verify` |
+| [asm-crypto](https://github.com/bitminetech/asm-crypto) | [`0f80dd7`](https://github.com/bitminetech/asm-crypto/tree/0f80dd746dfa7a561610165065b9473e4d16a0ce) | `crypto_sha256`, `crypto_keccak256`, `crypto_hkdf_extract`, `crypto_hkdf_expand`, `crypto_aes128_ctr`, `crypto_aes128_gcm_ae`, `crypto_aes128_gcm_ad`, `crypto_secp256k1_public_key`, `crypto_secp256k1_decompress`, `crypto_secp256k1_ecdh`, `crypto_secp256k1_sign`, `crypto_secp256k1_verify` |
 | [asm-rlp](https://github.com/bitminetech/asm-rlp) | [`40cca37`](https://github.com/bitminetech/asm-rlp/tree/40cca377a1621ed660a73724192a4a0b2c059a84) | `rlp_decode` |
 | libSystem (macOS shell) | macOS 11.0 SDK | `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `poll`, `close`, `__error`, `clock_gettime_nsec_np`, `getentropy` |
 | ws2_32, kernel32 and bcrypt (Windows shell) | Windows 10 | `WSAStartup`, `WSACleanup`, `WSAGetLastError`, `WSAPoll`, `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `closesocket`, `GetTickCount64`, `BCryptGenRandom` |
