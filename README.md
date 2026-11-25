@@ -4,7 +4,7 @@ Node Discovery Protocol v5.1 (discv5), in assembly.
 
 Node records, the wire protocol, the handshake, the node table, lookups and a UDP shell, for an Ethereum consensus client.
 
-Standard: [asm-standard@2a19d3f](https://github.com/bitminetech/asm-standard/blob/2a19d3f7fa737af1c01720b6e891703e53a682aa/ARCHITECTURE.md)
+Standard: [asm-standard@185917b](https://github.com/bitminetech/asm-standard/blob/185917bedc54ff034e40069318add463c58f4db8/ARCHITECTURE.md)
 
 <!-- CI generates the verification heatmap here. -->
 <table><tr><td>
