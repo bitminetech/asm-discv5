@@ -1001,6 +1001,39 @@ FUNCTION discv5_packet_encode
     mov     %r8, %r14
     mov     DISCV5_HDR_FLAG(%rbx), %r15
 
+    /* Every check comes before the first write, so a failure leaves header unchanged. */
+    mov     $32, %ecx
+    cmp     $DISCV5_FLAG_MESSAGE, %r15
+    je      3f
+    mov     $24, %ecx
+    cmp     $DISCV5_FLAG_WHOAREYOU, %r15
+    je      3f
+    cmp     $DISCV5_FLAG_HANDSHAKE, %r15
+    jne     98f
+    mov     DISCV5_HDR_RECORD+DISCV5_BL_COUNT(%rbx), %rcx
+    cmp     $DISCV5_MAX_RECORD, %rcx
+    ja      98f
+    add     $(34 + 64 + 33), %rcx
+3:  lea     DISCV5_HEADER_START(%rcx), %rax
+    mov     %rax, PE_HLEN(%rsp)
+
+    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
+    mov     %rax, %rcx
+    cmp     $DISCV5_FLAG_WHOAREYOU, %r15
+    je      7f
+    mov     DISCV5_BL_COUNT(%r13), %rdx
+    add     $CRYPTO_GCM_TAG_SIZE, %rdx
+    add     %rdx, %rcx
+7:  mov     %rcx, PE_TOTAL(%rsp)
+    cmp     $DISCV5_MAX_PACKET, %rcx
+    ja      98f
+    mov     $DISCV5_BUFFER_TOO_SMALL, %eax
+    mov     DISCV5_BL_SIZE(%r14), %rdx
+    sub     $DISCV5_BL_FIXED, %rdx
+    jb      99f
+    cmp     %rcx, %rdx
+    jb      99f
+
     /* The unmasked header: IV, "discv5", version 1, flag, nonce, authdata size, authdata. */
     lea     DISCV5_HDR_HEADER+DISCV5_BL_FIXED(%rbx), %rdi
     lea     DISCV5_HDR_IV(%rbx), %rsi
@@ -1017,29 +1050,14 @@ FUNCTION discv5_packet_encode
     lea     DISCV5_HDR_NONCE(%rbx), %rsi
     mov     $12, %edx
     call    discv5_copy
-    mov     %rax, PE_POS(%rsp)
-    cmp     $DISCV5_FLAG_MESSAGE, %r15
-    jne     1f
-    mov     $32, %ecx
-    jmp     4f
-1:  cmp     $DISCV5_FLAG_WHOAREYOU, %r15
-    jne     2f
-    mov     $24, %ecx
-    jmp     4f
-2:  cmp     $DISCV5_FLAG_HANDSHAKE, %r15
-    jne     98f
-    mov     DISCV5_HDR_RECORD+DISCV5_BL_COUNT(%rbx), %rcx
-    cmp     $DISCV5_MAX_RECORD, %rcx
-    ja      98f
-    add     $(34 + 64 + 33), %rcx
-4:  mov     PE_POS(%rsp), %rdi
+    mov     %rax, %rdi
+    mov     PE_HLEN(%rsp), %rcx
+    sub     $DISCV5_HEADER_START, %rcx
     mov     %ecx, %eax
     shr     $8, %eax
     mov     %al, (%rdi)
     mov     %cl, 1(%rdi)
     add     $2, %rdi
-    lea     DISCV5_HEADER_START(%rcx), %rax
-    mov     %rax, PE_HLEN(%rsp)
     cmp     $DISCV5_FLAG_WHOAREYOU, %r15
     je      5f
     lea     DISCV5_HDR_SRC_ID(%rbx), %rsi
@@ -1073,23 +1091,6 @@ FUNCTION discv5_packet_encode
     mov     %rax, DISCV5_HDR_HEADER+DISCV5_BL_COUNT(%rbx)
     movq    $DISCV5_HDR_HEADER_SIZE, DISCV5_HDR_HEADER+DISCV5_BL_SIZE(%rbx)
     movq    $DISCV5_BL_FIXED, DISCV5_HDR_HEADER+DISCV5_BL_OFFSET(%rbx)
-
-    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
-    mov     %rax, %rcx
-    cmp     $DISCV5_FLAG_WHOAREYOU, %r15
-    je      7f
-    mov     DISCV5_BL_COUNT(%r13), %rdx
-    add     $CRYPTO_GCM_TAG_SIZE, %rdx
-    add     %rdx, %rcx
-7:  mov     %rcx, PE_TOTAL(%rsp)
-    cmp     $DISCV5_MAX_PACKET, %rcx
-    ja      98f
-    mov     $DISCV5_BUFFER_TOO_SMALL, %eax
-    mov     DISCV5_BL_SIZE(%r14), %rdx
-    sub     $DISCV5_BL_FIXED, %rdx
-    jb      99f
-    cmp     %rcx, %rdx
-    jb      99f
 
     /* Mask: AES-CTR with the first 16 bytes of the destination ID, the IV as counter. */
     mov     PE_HLEN(%rsp), %rcx

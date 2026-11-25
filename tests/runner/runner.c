@@ -270,11 +270,13 @@ static int case_packet(cursor *c, const char *name) {
         for (int small = 0; small < 2; small++) {
             output hh = out_new(DISCV5_HDR_SIZE);
             header_fill(hh.p, flag, iv, nonce, src, idn, seq, sig, eph, record);
+            uint8_t before[DISCV5_HDR_SIZE];
+            memcpy(before, hh.p, DISCV5_HDR_SIZE);
             input d = in_bytes(local, 32, 0), k = in_bytes(key, 16, 0), m = in_list(pt.p, pt.n);
             output o = out_sized((size_t)(24 + pkt.n - small));
             status = CALL(F_PACKET_ENCODE, hh.p, d.p, k.p, m.p, o.p);
             if (small)
-                eok &= status == DISCV5_BUFFER_TOO_SMALL && out_guards(&o);
+                eok &= status == DISCV5_BUFFER_TOO_SMALL && out_guards(&o) && memcmp(hh.p, before, DISCV5_HDR_SIZE) == 0;
             else
                 eok &= status == DISCV5_OK && out_list_is(&o, pkt.p, pkt.n) && out_guards(&hh) &&
                        rd64(hh.p + 544) == raw.n && memcmp(hh.p + 552, raw.p, (size_t)raw.n) == 0;

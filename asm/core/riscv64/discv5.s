@@ -1096,6 +1096,30 @@ FUNCTION discv5_packet_encode
     mv      s5, a4
     ld      s6, DISCV5_HDR_FLAG(s1)
 
+    /* Every check comes before the first write, so a failure leaves header unchanged. */
+    li      t0, 32
+    beqz    s6, 3f
+    li      t0, 24
+    BEQI    s6, DISCV5_FLAG_WHOAREYOU, 3f
+    BNEI    s6, DISCV5_FLAG_HANDSHAKE, 98f
+    ld      t0, DISCV5_HDR_RECORD+DISCV5_BL_COUNT(s1)
+    BGTUI   t0, DISCV5_MAX_RECORD, 98f
+    addi    t0, t0, HS_FIXED
+3:  addi    s7, t0, DISCV5_HEADER_START
+
+    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
+    mv      s8, s7
+    BEQI    s6, DISCV5_FLAG_WHOAREYOU, 7f
+    ld      t0, DISCV5_BL_COUNT(s4)
+    addi    t0, t0, CRYPTO_GCM_TAG_SIZE
+    add     s8, s8, t0
+7:  BGTUI   s8, DISCV5_MAX_PACKET, 98f
+    li      a0, DISCV5_BUFFER_TOO_SMALL
+    ld      t0, DISCV5_BL_SIZE(s5)
+    BLTUI   t0, DISCV5_BL_FIXED, 99f
+    addi    t0, t0, -DISCV5_BL_FIXED
+    bltu    t0, s8, 99f
+
     /* The unmasked header: IV, "discv5", version 1, flag, nonce, authdata size, authdata. */
     addi    a0, s1, DISCV5_HDR_HEADER+DISCV5_BL_FIXED
     addi    a1, s1, DISCV5_HDR_IV
@@ -1113,21 +1137,11 @@ FUNCTION discv5_packet_encode
     li      a2, 12
     call    discv5_copy
     mv      s9, a0
-    bnez    s6, 1f
-    li      t0, 32
-    j       4f
-1:  BNEI    s6, DISCV5_FLAG_WHOAREYOU, 2f
-    li      t0, 24
-    j       4f
-2:  BNEI    s6, DISCV5_FLAG_HANDSHAKE, 98f
-    ld      t0, DISCV5_HDR_RECORD+DISCV5_BL_COUNT(s1)
-    BGTUI   t0, DISCV5_MAX_RECORD, 98f
-    addi    t0, t0, HS_FIXED
-4:  srli    t1, t0, 8
+    addi    t0, s7, -DISCV5_HEADER_START
+    srli    t1, t0, 8
     sb      t1, 0(s9)
     sb      t0, 1(s9)
     addi    s9, s9, 2
-    addi    s7, t0, DISCV5_HEADER_START
     mv      a0, s9
     BEQI    s6, DISCV5_FLAG_WHOAREYOU, 5f
     addi    a1, s1, DISCV5_HDR_SRC_ID
@@ -1160,19 +1174,6 @@ FUNCTION discv5_packet_encode
     sd      t0, DISCV5_HDR_HEADER+DISCV5_BL_SIZE(s1)
     li      t0, DISCV5_BL_FIXED
     sd      t0, DISCV5_HDR_HEADER+DISCV5_BL_OFFSET(s1)
-
-    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
-    mv      s8, s7
-    BEQI    s6, DISCV5_FLAG_WHOAREYOU, 7f
-    ld      t0, DISCV5_BL_COUNT(s4)
-    addi    t0, t0, CRYPTO_GCM_TAG_SIZE
-    add     s8, s8, t0
-7:  BGTUI   s8, DISCV5_MAX_PACKET, 98f
-    li      a0, DISCV5_BUFFER_TOO_SMALL
-    ld      t0, DISCV5_BL_SIZE(s5)
-    BLTUI   t0, DISCV5_BL_FIXED, 99f
-    addi    t0, t0, -DISCV5_BL_FIXED
-    bltu    t0, s8, 99f
 
     /* Mask: AES-CTR with the first 16 bytes of the destination ID, the IV as counter. */
     addi    t0, s7, -DISCV5_MASKED_START

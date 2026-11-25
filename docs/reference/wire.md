@@ -150,7 +150,7 @@ discv5_packet_encode(header, dest_id, key, message, packet) -> status
 
 | Name | Role | Type |
 |---|---|---|
-| `header` | input; its `header` field is an output | `Header` |
+| `header` | state | `Header`: the function writes its `header` field |
 | `dest_id` | input | `NodeId` |
 | `key` | input | 16 bytes |
 | `message` | input | [`ByteList`](enr.md#type-bytelist) |
@@ -171,6 +171,7 @@ discv5_packet_encode(header, dest_id, key, message, packet) -> status
 
 ### Function does
 
+- Makes every check before its first write, so a failure leaves `header` unchanged.
 - Writes the unmasked header (IV, "discv5", version 1, flag, nonce, authdata size, authdata) into the `header` field of `header`.
 - Seals `message` with `crypto_aes128_gcm_ae` under `key`, the nonce, and the unmasked header as associated data, except for flag 1.
 - Masks the header after the IV with `crypto_aes128_ctr`: the first 16 bytes of `dest_id` as key, the IV as counter.

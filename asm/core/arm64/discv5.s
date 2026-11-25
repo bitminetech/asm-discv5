@@ -1014,6 +1014,39 @@ FUNCTION discv5_packet_encode
     mov     x23, x4
     ldr     x24, [x19, #DISCV5_HDR_FLAG]
 
+    /* Every check comes before the first write, so a failure leaves header unchanged. */
+    mov     x0, #DISCV5_INVALID_PACKET
+    mov     x9, #32
+    cmp     x24, #DISCV5_FLAG_MESSAGE
+    b.eq    3f
+    mov     x9, #24
+    cmp     x24, #DISCV5_FLAG_WHOAREYOU
+    b.eq    3f
+    cmp     x24, #DISCV5_FLAG_HANDSHAKE
+    b.ne    99f
+    ldr     x9, [x19, #DISCV5_HDR_RECORD + DISCV5_BL_COUNT]
+    cmp     x9, #DISCV5_MAX_RECORD
+    b.hi    99f
+    add     x9, x9, #(34 + 64 + 33)
+3:  add     x25, x9, #DISCV5_HEADER_START
+
+    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
+    mov     x26, x25
+    cmp     x24, #DISCV5_FLAG_WHOAREYOU
+    b.eq    7f
+    ldr     x9, [x22, #DISCV5_BL_COUNT]
+    add     x9, x9, #CRYPTO_GCM_TAG_SIZE
+    add     x26, x26, x9
+7:  mov     x0, #DISCV5_INVALID_PACKET
+    cmp     x26, #DISCV5_MAX_PACKET
+    b.hi    99f
+    mov     x0, #DISCV5_BUFFER_TOO_SMALL
+    ldr     x9, [x23, #DISCV5_BL_SIZE]
+    subs    x9, x9, #DISCV5_BL_FIXED
+    b.lo    99f
+    cmp     x9, x26
+    b.lo    99f
+
     /* The unmasked header: IV, "discv5", version 1, flag, nonce, authdata size, authdata. */
     add     x27, x19, #DISCV5_HDR_HEADER + DISCV5_BL_FIXED
     mov     x0, x27
@@ -1032,25 +1065,10 @@ FUNCTION discv5_packet_encode
     mov     x2, #12
     bl      discv5_copy
     mov     x27, x0
-    mov     x0, #DISCV5_INVALID_PACKET
-    cmp     x24, #DISCV5_FLAG_MESSAGE
-    b.ne    1f
-    mov     x9, #32
-    b       4f
-1:  cmp     x24, #DISCV5_FLAG_WHOAREYOU
-    b.ne    2f
-    mov     x9, #24
-    b       4f
-2:  cmp     x24, #DISCV5_FLAG_HANDSHAKE
-    b.ne    99f
-    ldr     x9, [x19, #DISCV5_HDR_RECORD + DISCV5_BL_COUNT]
-    cmp     x9, #DISCV5_MAX_RECORD
-    b.hi    99f
-    add     x9, x9, #(34 + 64 + 33)
-4:  lsr     x10, x9, #8
+    sub     x9, x25, #DISCV5_HEADER_START
+    lsr     x10, x9, #8
     strb    w10, [x27], #1
     strb    w9, [x27], #1
-    add     x25, x9, #DISCV5_HEADER_START
     mov     x0, x27
     cmp     x24, #DISCV5_FLAG_WHOAREYOU
     b.eq    5f
@@ -1084,23 +1102,6 @@ FUNCTION discv5_packet_encode
     str     x9, [x19, #DISCV5_HDR_HEADER + DISCV5_BL_SIZE]
     mov     x9, #DISCV5_BL_FIXED
     str     x9, [x19, #DISCV5_HDR_HEADER + DISCV5_BL_OFFSET]
-
-    /* Sizes: the header, then the sealed message unless this is WHOAREYOU. */
-    mov     x26, x25
-    cmp     x24, #DISCV5_FLAG_WHOAREYOU
-    b.eq    7f
-    ldr     x9, [x22, #DISCV5_BL_COUNT]
-    add     x9, x9, #CRYPTO_GCM_TAG_SIZE
-    add     x26, x26, x9
-7:  mov     x0, #DISCV5_INVALID_PACKET
-    cmp     x26, #DISCV5_MAX_PACKET
-    b.hi    99f
-    mov     x0, #DISCV5_BUFFER_TOO_SMALL
-    ldr     x9, [x23, #DISCV5_BL_SIZE]
-    subs    x9, x9, #DISCV5_BL_FIXED
-    b.lo    99f
-    cmp     x9, x26
-    b.lo    99f
 
     /* Mask: AES-CTR with the first 16 bytes of the destination ID, the IV as counter. */
     sub     x9, x25, #DISCV5_MASKED_START
