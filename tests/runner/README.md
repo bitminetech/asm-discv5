@@ -19,6 +19,7 @@ tests/runner/macos.sh ~/.cache/asm-discv5/vectors
 | `docker.sh` | Builds the Docker image, builds the library for all 7 targets into `build/`, and runs the vectors for Linux x86-64, ARM64 and RISC-V. ISAs other than the host's run under QEMU user mode. |
 | `macos.sh` | Links the runner on a Mac against the library that `docker.sh` built, and runs the vectors. |
 | `tick_tables.py` | Writes the tick table of each function into its document, from the results of every target. |
+| `heatmap.py` | Writes the verification heatmap into the README from the tick tables. |
 | `abi_x86_64.s`, `abi_arm64.s`, `abi_riscv64.s` | `abi_call`, through which the runner calls every library function. Test code in assembly. |
 
 Name vector files after the folder to run only those files, for example `tests/runner/docker.sh DIR step.bin`.
