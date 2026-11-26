@@ -1,5 +1,7 @@
 # Node
 
+The node: table, sessions, lookups, step.
+
 ## Contents
 
 ### Functions
@@ -108,6 +110,20 @@
 - Document: [discv5-theory.md](https://github.com/ethereum/devp2p/blob/88f1c80800d622cc3a542a2125bbe33cc18c9f9c/discv5/discv5-theory.md) and [discv5-wire.md](https://github.com/ethereum/devp2p/blob/88f1c80800d622cc3a542a2125bbe33cc18c9f9c/discv5/discv5-wire.md), devp2p at commit 88f1c80.
 - Section: Node Table, Lookup, Sessions, Protocol Messages.
 - Parameters (`DISCV5_K`, `DISCV5_ALPHA`, timeouts and limits) follow go-ethereum v1.17.10 `p2p/discover`.
+
+## Integration
+
+| Item | Value |
+|---|---|
+| Startup | `discv5_shell_clock` gives the time and entropy for `discv5_init`; `discv5_shell_open` binds the socket |
+| Event loop | The application owns it: it calls `discv5_step` with a fresh tick and the events since the last step |
+| Actions | After a step returns 0, the application performs each SEND with `discv5_shell_send` and passes the SENT events to the next step |
+| Wakeup | The application waits with `discv5_shell_receive` until the WAKEUP time or a datagram, and passes the event to the next step |
+| Action room | `DISCV5_ACTIONS_BASE` + events × `DISCV5_ACTIONS_PER_EVENT` bytes after the 24-byte header |
+| Bootnodes, lookups, record | ADD_NODE, LOOKUP, SET_ENDPOINT and SET_ENTRY events; NODE_FOUND, LOOKUP_DONE, ENDPOINT and RECORD actions |
+| IP limits of the node table | The `discv5_init` config sets them: [Config](#type-config); all zero turns them off |
+| Shutdown | `discv5_shell_close` |
+| Concurrency | One thread at a time for a state and its shell context |
 
 ## Function `discv5_init`
 

@@ -110,7 +110,7 @@ static int actions_ok(const uint8_t *a, size_t cap) {
 
 /*
  * One step: events as an exact input, scratch of its exact size, actions of
- * exactly the room the README asks for. Returns the status; on 0 the actions
+ * exactly the room that node.md, Integration, asks for. Returns the status; on 0 the actions
  * are in last_actions.
  */
 static uint64_t step(uint8_t *state, uint64_t now, uint64_t salt, evlist *e, int *ok) {

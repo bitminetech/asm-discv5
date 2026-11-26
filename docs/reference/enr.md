@@ -1,5 +1,7 @@
 # Node records
 
+Read, write and sign node records.
+
 ## Contents
 
 ### Functions

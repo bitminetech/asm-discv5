@@ -1,5 +1,7 @@
 # Shell
 
+UDP socket, clock and random bytes.
+
 ## Contents
 
 ### Functions
@@ -26,6 +28,16 @@
 
 - Document: ARCHITECTURE.md section 2 (core and shell) and section 6 (actions and events).
 - Section: the shell of this library: one UDP socket, the clock and random bytes.
+
+## OS calls
+
+| OS | Calls | Requirements |
+|---|---|---|
+| Linux | System calls `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `ppoll`, `clock_gettime`, `getrandom`, `close` | Linux 3.17 or later, for `getrandom`. Numbers and layouts from the kernel uapi headers of each ISA, as in Debian trixie |
+| macOS | libSystem functions of the `# uses` lines in [platform/deps.sh](../../platform/deps.sh) | macOS 11.0 or later |
+| Windows | Winsock 2.2, `GetTickCount64`, `BCryptGenRandom` | Windows 10 or later |
+
+- The OS calls use their own native stack, beyond the stack limit of the library's functions.
 
 ## Function `discv5_shell_open`
 

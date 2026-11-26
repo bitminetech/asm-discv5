@@ -1,5 +1,7 @@
 # Handshake
 
+Session keys and the ID proof.
+
 ## Contents
 
 ### Functions

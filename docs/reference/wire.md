@@ -1,5 +1,7 @@
 # Wire protocol
 
+Packets: mask, encrypt and decode.
+
 ## Contents
 
 ### Functions

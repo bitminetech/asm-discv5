@@ -1,10 +1,16 @@
 # asm-discv5
 
-Node Discovery Protocol v5.1 (discv5), in assembly.
+Node Discovery Protocol v5.1 (discv5) for an Ethereum consensus client, in assembly.
 
-Node records, the wire protocol, the handshake, the node table, lookups and a UDP shell, for an Ethereum consensus client.
+Standard: [asm-standard@0db3e07](https://github.com/bitminetech/asm-standard/blob/0db3e07f58a9ba89c5b6a46925b179de265ee7e8/ARCHITECTURE.md)
 
-Standard: [asm-standard@185917b](https://github.com/bitminetech/asm-standard/blob/185917bedc54ff034e40069318add463c58f4db8/ARCHITECTURE.md)
+<!-- CI generates the supported platforms panel here. -->
+<table><tr><td>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/platforms-dark.svg"><img src="docs/readme/platforms-light.svg" alt="Supported platforms. Linux: x86-64, ARM64, RISC-V; Windows: x86-64, ARM64; macOS 11.0 or later: x86-64, ARM64"></picture>
+
+</td></tr></table>
+<!-- End of the supported platforms panel. -->
 
 <!-- CI generates the verification heatmap here. -->
 <table><tr><td>
@@ -24,91 +30,24 @@ Standard: [asm-standard@185917b](https://github.com/bitminetech/asm-standard/blo
 </td></tr></table>
 <!-- End of the verification heatmap. -->
 
-## Reference
+<!-- CI generates the CI panel here. -->
+<table><tr><td>
 
-| File | Covers |
-|---|---|
-| [docs/reference/enr.md](docs/reference/enr.md) | Node records |
-| [docs/reference/wire.md](docs/reference/wire.md) | Wire protocol |
-| [docs/reference/handshake.md](docs/reference/handshake.md) | Handshake |
-| [docs/reference/node.md](docs/reference/node.md) | Node: table, sessions, requests, lookups, events and actions |
-| [docs/reference/shell.md](docs/reference/shell.md) | Shell: UDP socket, clock and random bytes |
-| [include/discv5.inc](include/discv5.inc) | Constants and layouts |
+<a href="https://github.com/bitminetech/asm-discv5/actions/runs/45600553603"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/ci-dark.svg"><img src="docs/readme/ci-light.svg" alt="Latest CI run passed: 8 of 8 jobs passed"></picture></a>
 
-## Targets
+</td></tr></table>
+<!-- End of the CI panel. -->
 
-| OS | ISAs |
-|---|---|
-| Linux | x86-64, ARM64, RISC-V |
-| Windows | x86-64, ARM64 |
-| macOS | x86-64, ARM64 |
+<!-- CI generates the docs panel here. -->
+<table><tr><td>
 
-## Dependencies
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-header-dark.svg"><img src="docs/readme/docs-header-light.svg" alt="asm-discv5 docs"></picture><br>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-docs-dark.svg"><img src="docs/readme/docs-docs-light.svg" alt="Function docs"></picture><br>
+<a href="docs/reference/handshake.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-doc-handshake-dark.svg"><img src="docs/readme/docs-doc-handshake-light.svg" alt="Handshake: Session keys and the ID proof"></picture></a><a href="docs/reference/node.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-doc-node-dark.svg"><img src="docs/readme/docs-doc-node-light.svg" alt="Node: The node: table, sessions, lookups, step"></picture></a><br>
+<a href="docs/reference/enr.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-doc-enr-dark.svg"><img src="docs/readme/docs-doc-enr-light.svg" alt="Node records: Read, write and sign node records"></picture></a><a href="docs/reference/shell.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-doc-shell-dark.svg"><img src="docs/readme/docs-doc-shell-light.svg" alt="Shell: UDP socket, clock and random bytes"></picture></a><br>
+<a href="docs/reference/wire.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-doc-wire-dark.svg"><img src="docs/readme/docs-doc-wire-light.svg" alt="Wire protocol: Packets: mask, encrypt and decode"></picture></a>
 
-| Repo | Commit | Functions used |
-|---|---|---|
-| [asm-crypto](https://github.com/bitminetech/asm-crypto) | [`a364b8c`](https://github.com/bitminetech/asm-crypto/tree/a364b8c3c06b55607834f93cda7b7e315323b3b8) | `crypto_sha256`, `crypto_keccak256`, `crypto_hkdf_extract`, `crypto_hkdf_expand`, `crypto_aes128_ctr`, `crypto_aes128_gcm_ae`, `crypto_aes128_gcm_ad`, `crypto_secp256k1_public_key`, `crypto_secp256k1_decompress`, `crypto_secp256k1_ecdh`, `crypto_secp256k1_sign`, `crypto_secp256k1_verify` |
-| [asm-rlp](https://github.com/bitminetech/asm-rlp) | [`40cca37`](https://github.com/bitminetech/asm-rlp/tree/40cca377a1621ed660a73724192a4a0b2c059a84) | `rlp_decode` |
-| libSystem (macOS shell) | macOS 11.0 SDK | `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `poll`, `close`, `__error`, `clock_gettime_nsec_np`, `getentropy` |
-| ws2_32, kernel32 and bcrypt (Windows shell) | Windows 10 | `WSAStartup`, `WSACleanup`, `WSAGetLastError`, `WSAPoll`, `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `closesocket`, `GetTickCount64`, `BCryptGenRandom` |
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/docs-footer-dark.svg"><img src="docs/readme/docs-footer-light.svg" alt="Select a card to open its doc."></picture>
 
-## Build tools
-
-| Used for | Tool |
-|---|---|
-| Library | LLVM 23.1.5, official release (`clang`, `llvm-ar`, `lld`) |
-| Windows test runner and node | [llvm-mingw 20261104](https://github.com/mstorsjo/llvm-mingw/releases/tag/20261104) (LLVM 23.1.5) |
-| macOS test runner and node | The host Xcode clang, because they need the macOS SDK |
-| Vector generator and conformance tool | Go 1.27.3, the toolchain go-ethereum v1.17.10 pins |
-| Build image | [platform/linux/Dockerfile](platform/linux/Dockerfile) on `debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2` |
-
-## Tests
-
-| Item | Location |
-|---|---|
-| Export and frame check | [platform/check.py](platform/check.py) |
-| Vector generator | [tests/generator/](tests/generator/) |
-| Test runner | [tests/runner/](tests/runner/) |
-| Conformance against go-ethereum | [tests/conformance/](tests/conformance/) |
-
-## Target profile
-
-| ISA | Instructions |
-|---|---|
-| x86-64 | x86-64-v1 |
-| ARM64 | Armv8.0-A |
-| RISC-V | RV64GC |
-
-| Item | Value |
-|---|---|
-| macOS objects | Marked for macOS 11.0 or later |
-| Linux kernel | 3.17 or later, for `getrandom` |
-
-## Environment boundaries
-
-| OS | Call | Requirements |
-|---|---|---|
-| Linux | System calls `socket`, `setsockopt`, `bind`, `getsockname`, `sendto`, `recvfrom`, `ppoll`, `clock_gettime`, `getrandom`, `close` | Numbers and layouts from the kernel uapi headers of each ISA, as in Debian trixie |
-| macOS | libSystem functions in the Dependencies table | macOS 11.0 or later |
-| Windows | Winsock 2.2, `GetTickCount64`, `BCryptGenRandom` | Windows 10 or later |
-
-## Stack
-
-| Item | Value |
-|---|---|
-| Stack per call | At most 16384 bytes, callees included |
-| Shell calls | The OS calls of the shell add their own native stack |
-
-## Integration
-
-| Item | Value |
-|---|---|
-| Startup | `discv5_shell_clock` gives the time and entropy for `discv5_init`; `discv5_shell_open` binds the socket |
-| Event loop | The application owns it: it calls `discv5_step` with a fresh tick and the events since the last step |
-| Actions | After a step returns 0, the application performs each SEND with `discv5_shell_send` and passes the SENT events to the next step |
-| Wakeup | The application waits with `discv5_shell_receive` until the WAKEUP time or a datagram, and passes the event to the next step |
-| Action room | `DISCV5_ACTIONS_BASE` + events × `DISCV5_ACTIONS_PER_EVENT` bytes after the 24-byte header |
-| Bootnodes, lookups, record | ADD_NODE, LOOKUP, SET_ENDPOINT and SET_ENTRY events; NODE_FOUND, LOOKUP_DONE, ENDPOINT and RECORD actions |
-| IP limits of the node table | The `discv5_init` config sets them: [Config](docs/reference/node.md#type-config); all zero turns them off |
-| Shutdown | `discv5_shell_close` |
-| Concurrency | One thread at a time for a state and its shell context |
+</td></tr></table>
+<!-- End of the docs panel. -->
