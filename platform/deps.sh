@@ -21,5 +21,5 @@ fetch() {
         git -C "$dir" checkout -q FETCH_HEAD
     fi
 }
-fetch asm-crypto a364b8c3c06b55607834f93cda7b7e315323b3b8
+fetch asm-crypto 6df4597fa0c3584d5eef4f89cbc647797316853d
 fetch asm-rlp 40cca377a1621ed660a73724192a4a0b2c059a84
